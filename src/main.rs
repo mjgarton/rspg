@@ -169,13 +169,7 @@ enum Command<S: PgStatement> {
 #[derive(Debug)]
 pub struct Stmt {
     pub s: Arc<String>,
-    pub(crate) params: AnyParams,
-}
-
-#[derive(Debug)]
-pub(crate) enum AnyParams {
-    None,
-    VP(VecParams),
+    pub(crate) params: VecParams,
 }
 
 #[derive(Debug)]
@@ -183,16 +177,12 @@ pub(crate) struct VecParams {
     pub params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>>,
 }
 
-impl AnyParams {
-    pub(crate) fn params(&self) -> Vec<&(dyn tokio_postgres::types::ToSql + Sync)> {
-        match &self {
-            AnyParams::VP(vp) => vp
-                .params
-                .iter()
-                .map(|s| s.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect::<Vec<_>>(),
-            AnyParams::None => vec![],
-        }
+impl VecParams {
+    fn params(&self) -> Vec<&(dyn tokio_postgres::types::ToSql + Sync)> {
+        self.params
+            .iter()
+            .map(|s| s.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect::<Vec<_>>()
     }
 }
 
@@ -208,7 +198,7 @@ impl<'a> Iterator for AnyParamIter<'a> {
     }
 }
 
-impl<'a> IntoIterator for &'a AnyParams {
+impl<'a> IntoIterator for &'a VecParams {
     type Item = &'a (dyn tokio_postgres::types::ToSql + Sync);
     type IntoIter = AnyParamIter<'a>;
 
@@ -246,7 +236,7 @@ async fn main() -> Result<(), MyError> {
                 "create table if not exists test01 (id bigint,created_at TIMESTAMPTZ DEFAULT (Now() at time zone 'utc'));"
                     .to_string(),
             ),
-            params: AnyParams::None,
+            params: VecParams { params: vec![] },
         })
         .await?;
 
@@ -255,9 +245,9 @@ async fn main() -> Result<(), MyError> {
     for i in 1_i64..1000000 {
         let st = Stmt {
             s: Arc::new("insert into test01 values($1)".to_string()),
-            params: AnyParams::VP(VecParams {
+            params: VecParams {
                 params: vec![Box::new(i)],
-            }),
+            },
         };
         execer.execute(st).await?;
     }
